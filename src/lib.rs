@@ -6,7 +6,7 @@ extern crate serde;
 pub mod header;
 
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::iter;
 
@@ -18,7 +18,7 @@ const REGTYPE: u8 = b'0';
 const FOOTER_SIZE: usize = 1024;
 
 fn write_files_to_archive(
-  mut archive: &mut fs::File,
+  mut archive: &mut File,
   files: &[&str],
 ) -> Result<()> {
   for path in files {
@@ -43,14 +43,14 @@ fn write_files_to_archive(
 }
 
 pub fn create_archive(archive_name: &str, files: &[&str]) -> Result<()> {
-  let mut archive = fs::File::create(archive_name)?;
+  let mut archive = File::create(archive_name)?;
   write_files_to_archive(&mut archive, files)?;
   Ok(())
 }
 
 pub fn append_to_archive(archive_name: &str, files: &[&str]) -> Result<()> {
-  let mut archive = fs::OpenOptions::new().write(true).open(archive_name)?;
-  archive.seek(io::SeekFrom::End(-1 * (FOOTER_SIZE as i64)))?;
+  let mut archive = OpenOptions::new().append(true).open(archive_name)?;
+  archive.seek(SeekFrom::End(-1 * (FOOTER_SIZE as i64)))?;
   write_files_to_archive(&mut archive, files)?;
   Ok(())
 }
@@ -60,20 +60,13 @@ pub fn get_archive_file_list(archive_name: &str) -> Result<Vec<String>> {
   let mut file_names = Vec::new();
 
   loop {
-    /*
-     * archive.read_exact(&mut header_bytes)?;
+    let header_opt =
+      Header::read(&mut archive).context("could not parse header")?;
 
-    if header_bytes.iter().map(|x| *x as u32).sum::<u32>() == 0 {
-      // We've read in a footer block with all 0 bytes
-      break;
-    }
-    */
-
-    let header: Header =
-      match Header::read(&mut archive).context("could not parse header")? {
-        Some(v) => v,
-        None => break,
-      };
+    let header: Header = match header_opt {
+      Some(v) => v,
+      None => break,
+    };
 
     file_names.push(header.name.display().to_string());
 
@@ -99,35 +92,15 @@ pub fn update_archive(archive_name: &str, files: &[&str]) -> Result<()> {
 
 pub fn extract_from_archive(archive_name: &str) -> Result<()> {
   let mut archive = fs::File::open(archive_name)?;
-  let mut header_bytes = [0; 512];
 
   loop {
-    archive.read_exact(&mut header_bytes)?;
-    if header_bytes.iter().map(|x| *x as u32).sum::<u32>() == 0 {
-      // We've read in a footer block with all 0 bytes
-      break;
-    }
+    let header = match Header::read(&mut archive)? {
+      Some(v) => v,
+      None => break,
+    };
 
-    /*
-    let header = Header::from_bytes(&header_bytes)?;
-    let name_bytes: Vec<u8> = header
-      .name
-      .iter()
-      .cloned()
-      .take_while(|x| *x != 0u8)
-      .collect();
-    let name = String::from_utf8(name_bytes)?;
-    let size_bytes: Vec<u8> = header
-      .size
-      .iter()
-      .cloned()
-      .take_while(|x| *x != 0u8)
-      .collect();
-    let size = String::from_utf8(size_bytes)?;
-    let size = u32::from_str_radix(&size, 8)?;
-
-    let mut f = fs::File::create(name)?;
-    let mut remaining_bytes = size as usize;
+    let mut f = File::create(header.name)?;
+    let mut remaining_bytes = header.size as usize;
     while remaining_bytes > 0 {
       let chunk_size = if remaining_bytes >= 512 {
         512 as usize
@@ -137,12 +110,12 @@ pub fn extract_from_archive(archive_name: &str) -> Result<()> {
       let mut buf = vec![0u8; chunk_size];
       archive.read_exact(&mut buf)?;
       f.write_all(&buf)?;
+
       remaining_bytes -= chunk_size;
     }
 
-    let num_padding_bytes = 512 - (size % 512);
-    archive.seek(io::SeekFrom::Current(num_padding_bytes as i64))?;
-    */
+    let num_padding_bytes = 512 - (header.size % 512);
+    archive.seek(SeekFrom::Current(num_padding_bytes as i64))?;
   }
 
   Ok(())
