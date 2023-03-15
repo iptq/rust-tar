@@ -7,7 +7,7 @@ pub mod header;
 
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::iter;
 
 use anyhow::{Context, Result};
@@ -50,7 +50,7 @@ pub fn create_archive(archive_name: &str, files: &[&str]) -> Result<()> {
 
 pub fn append_to_archive(archive_name: &str, files: &[&str]) -> Result<()> {
   let mut archive = OpenOptions::new().append(true).open(archive_name)?;
-  archive.seek(SeekFrom::End(-1 * (FOOTER_SIZE as i64)))?;
+  archive.seek(SeekFrom::End(-(FOOTER_SIZE as i64)))?;
   write_files_to_archive(&mut archive, files)?;
   Ok(())
 }
@@ -103,9 +103,9 @@ pub fn extract_from_archive(archive_name: &str) -> Result<()> {
     let mut remaining_bytes = header.size as usize;
     while remaining_bytes > 0 {
       let chunk_size = if remaining_bytes >= 512 {
-        512 as usize
+        512_usize
       } else {
-        remaining_bytes as usize
+        remaining_bytes
       };
       let mut buf = vec![0u8; chunk_size];
       archive.read_exact(&mut buf)?;
